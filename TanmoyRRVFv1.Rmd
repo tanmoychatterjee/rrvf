@@ -1,0 +1,144 @@
+---
+title: "test"
+author: "TC"
+date: "November 8, 2017"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+setwd("C:/Users/tanmoy.chatterjee/Recruit Restaurant Visitor Forecasting")
+```
+
+```{r}
+library(ggplot2)
+library(ggmap)
+library(maps)
+
+library(mapdata)
+
+library(broom)
+library(gridExtra)
+library(GGally)
+library(caTools)
+library(reshape2)
+library(mosaic)
+library(reshape2)
+library(anytime)
+library(treemap)
+library(factoextra)
+library(data.table)
+require(igraph)
+require(xgboost)
+library(caret)
+library(verification)
+library(data.table)
+library(doParallel)
+library(pROC)
+library(dplyr)
+```
+
+```{r}
+dfairreserve=read.csv(file="./data/air_reserve.csv",encoding="UTF-8",header=TRUE)
+dfairreserve$visit_datetime = as.Date(dfairreserve$visit_datetime, format="%Y-%m-%d %H:%M:%S")
+dfairreserve$reserve_datetime = as.Date(dfairreserve$reserve_datetime, format="%Y-%m-%d %H:%M:%S")
+glimpse(dfairreserve)
+
+dfairstore=read.csv(file="./data/air_store_info.csv",encoding="UTF-8",header=TRUE)
+glimpse(dfairstore)
+
+dfairvisit=read.csv(file="./data/air_visit_data.csv",encoding="UTF-8",header=TRUE)
+dfairvisit$visit_date = as.Date(dfairvisit$visit_date, format="%Y-%m-%d")
+glimpse(dfairvisit)
+
+dfdate=read.csv(file="./data/date_info.csv",encoding="UTF-8",header=TRUE)
+dfdate$calendar_date = as.Date(dfdate$calendar_date, format="%Y-%m-%d")
+glimpse(dfdate)
+
+dfhpgreserve=read.csv(file="./data/hpg_reserve.csv",encoding="UTF-8",header=TRUE)
+dfhpgreserve$visit_datetime = as.Date(dfhpgreserve$visit_datetime, format="%Y-%m-%d %H:%M:%S")
+dfhpgreserve$reserve_datetime = as.Date(dfhpgreserve$reserve_datetime, format="%Y-%m-%d %H:%M:%S")
+glimpse(dfhpgreserve)
+
+dfhpgstore=read.csv(file="./data/hpg_store_info.csv",encoding="UTF-8",header=TRUE)
+glimpse(dfhpgstore)
+
+dfstoreidrel=read.csv(file="./data/store_id_relation.csv",encoding="UTF-8",header=TRUE)
+glimpse(dfstoreidrel)
+
+```
+# Exploratory data analysis
+
+```{r}
+df = dfairreserve%>%
+  group_by(air_store_id)%>%
+  summarise(count = n())%>%
+  arrange(desc(count))
+df
+
+dfair_8093d0b565e9dbdf_reserve = dfairreserve%>%
+  filter(air_store_id == "air_8093d0b565e9dbdf")%>%
+  select(-air_store_id)%>%
+  group_by(reserve_datetime, visit_datetime)%>%
+  summarise(reserve_visitors = sum(reserve_visitors))%>%
+  arrange(reserve_datetime)
+dfair_8093d0b565e9dbdf_reserve = plyr::rename(dfair_8093d0b565e9dbdf_reserve, c("visit_datetime" = "visit_date"))
+glimpse(dfair_8093d0b565e9dbdf_reserve)
+
+dfair_8093d0b565e9dbdf_visit = dfairvisit%>%
+  filter(air_store_id == "air_8093d0b565e9dbdf")%>%
+  select(-air_store_id)
+glimpse(dfair_8093d0b565e9dbdf_visit)
+
+dfair_8093d0b565e9dbdf = merge(x = dfair_8093d0b565e9dbdf_reserve, y = dfair_8093d0b565e9dbdf_visit, by = "visit_date")
+glimpse(dfair_8093d0b565e9dbdf)
+
+
+dfhpg_874415e6e7ccfe13_reserve = dfhpgreserve%>%
+  filter(hpg_store_id == "hpg_874415e6e7ccfe13")%>%
+  select(-hpg_store_id)
+dfhpg_874415e6e7ccfe13_reserve = plyr::rename(dfhpg_874415e6e7ccfe13_reserve, c("visit_datetime" = "visit_date", "reserve_visitors" = "hreserve_visitors"))
+
+glimpse(dfhpg_874415e6e7ccfe13_reserve)
+  
+dfair_8093d0b565e9dbdf = merge(x = dfair_8093d0b565e9dbdf, y = dfhpg_874415e6e7ccfe13_reserve, by = c("reserve_datetime", "visit_date"))
+dfair_8093d0b565e9dbdf$reserve_visitors = dfair_8093d0b565e9dbdf$reserve_visitors + dfair_8093d0b565e9dbdf$hreserve_visitors
+dfair_8093d0b565e9dbdf$hreserve_visitors = NULL
+glimpse(dfair_8093d0b565e9dbdf)
+summary(dfair_8093d0b565e9dbdf)
+
+
+ggplot(dfair_8093d0b565e9dbdf, aes(x=visit_date)) + 
+  geom_line(aes(y=reserve_visitors),size=1, color="red") +
+  geom_line(aes(y=visitors),size=1, color="blue") +
+  scale_x_date(date_breaks = "1 month")+
+  theme(axis.text.x=element_text(angle=45))
+
+```
+# missing dates
+
+```{r}
+all_dates = seq(from = as.Date("2016-01-01"), 
+               to = as.Date("2017-04-31"), 
+               by = "days")
+
+```
+
+
+```{r}
+summary(dfairstore)
+japan_center = as.numeric(geocode("Japan"))
+#JapanMap = get_googlemap("japan", scale=2, zoom=14), extent="device", maptype="roadmap")
+#JapanMap <- map_data("worldHires", "japan")
+JapanMap = get_googlemap(center = "japan", zoom = 5, maptype = "roadmap", style = "feature:road|visibility:off&style=feature:administrative.locality|element:labels|visibility:off&style=feature:landscape|visibility:on|saturation:-100|lightness:50&style=feature:landscape|element:labels|visibility:off&style=feature:poi|visibility:off&style=feature:transit|visibility:off")
+
+ggmap(JapanMap) + 
+  geom_point(aes(x=longitude, y=latitude, col=air_genre_name, size = 2), data=dfairstore) 
+```
+
+
